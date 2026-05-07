@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            color: #32CD32;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 18px;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #terminal-container {
+            padding: 10px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        #history {
+            white-space: pre-wrap;
+        }
+
+        #input-line {
+            display: flex;
+            align-items: center;
+        }
+
+        .prompt {
+            white-space: nowrap;
+            user-select: none;
+            font-weight: normal; 
+        }
+
+        #cmd {
+            background: transparent;
+            border: none;
+            color: #32CD32;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            flex: 1;
+            padding: 0;
+            margin-left: 8px;
+            font-weight: normal;
+        }
+
+        canvas {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .stats {
+            font-weight: normal;
+            line-height: 1.1;
+            margin-top: 18px; /* Adds one line of space at the top */
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="terminal-container">
+        <div id="history"></div>
+        <div id="input-line">
+            <span class="prompt">user@terminal:~$</span>
+            <input type="text" id="cmd" autofocus spellcheck="false" autocomplete="off">
+        </div>
+    </div>
+
+    <canvas id="matrix"></canvas>
+
+    <script>
+        const cmdInput = document.getElementById('cmd');
+        const historyDiv = document.getElementById('history');
+        const termContainer = document.getElementById('terminal-container');
+        const canvas = document.getElementById('matrix');
+        let matrixActive = false;
+        let animationId;
+
+        function getOS() {
+            const ua = window.navigator.userAgent;
+            if (ua.indexOf("Windows NT 10.0") !== -1) return "Windows 10/11";
+            if (ua.indexOf("Mac") !== -1) return "macOS";
+            if (ua.indexOf("Linux") !== -1) return "Linux";
+            return "WebOS";
+        }
+
+        function getNeofetch() {
+            const os = getOS();
+            const res = `${window.screen.width}x${window.screen.height}`;
+            const mem = window.performance.memory ? 
+                Math.round(performance.memory.usedJSHeapSize / 1048576) + "MiB / " + Math.round(performance.memory.jsHeapLimit / 1048576) + "MiB" :
+                "854MiB / 4096MiB";
+            
+            return `<div class="stats">user@terminal
+-----------------
+OS: ${os}
+Host: ${navigator.platform}
+Kernel: ${navigator.appCodeName}
+Uptime: ${Math.floor(performance.now() / 60000)} mins
+Packages: 24 (web)
+Shell: browser-js
+Resolution: ${res}
+WM: Viewport
+WM Theme: Dark
+Theme: System
+Icons: Material
+Terminal: HTML5
+Terminal Font: Courier New
+CPU: ${navigator.hardwareConcurrency || 4} Cores
+GPU: Accelerated WebGL
+Memory: ${mem}</div>`;
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'c') {
+                if (matrixActive) {
+                    e.preventDefault();
+                    stopMatrix();
+                }
+                return;
+            }
+
+            if (e.key === 'Enter' && !matrixActive) {
+                const rawValue = cmdInput.value;
+                const parts = rawValue.trim().split(' ');
+                const command = parts[0].toLowerCase();
+                const args = parts.slice(1).join(' ');
+                
+                if (rawValue !== "") {
+                    historyDiv.innerHTML += `<div><span class="prompt">user@terminal:~$</span> ${rawValue}</div>`;
+                }
+
+                if (command === 'cmatrix') {
+                    runMatrix();
+                } else if (command === 'neofetch') {
+                    historyDiv.innerHTML += getNeofetch();
+                } else if (command === 'echo') {
+                    historyDiv.innerHTML += `<div>${args}</div>`;
+                } else if (command === 'open') {
+                    let url = args;
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                        url = 'https://' + url;
+                    }
+                    window.open(url, '_blank');
+                    historyDiv.innerHTML += `<div>Opening ${url}...</div>`;
+                } else if (command === 'clear') {
+                    historyDiv.innerHTML = '';
+                } else if (command !== "") {
+                    historyDiv.innerHTML += `<div>Command '${command}' not found.</div>`;
+                }
+
+                cmdInput.value = '';
+                termContainer.scrollTop = termContainer.scrollHeight;
+            }
+        });
+
+        function stopMatrix() {
+            matrixActive = false;
+            cancelAnimationFrame(animationId);
+            canvas.style.display = 'none';
+            termContainer.style.display = 'flex';
+            cmdInput.focus();
+        }
+
+        function runMatrix() {
+            matrixActive = true;
+            termContainer.style.display = 'none';
+            canvas.style.display = 'block';
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ";
+            const charArray = chars.split("");
+            const fontSize = 16;
+            const columns = Math.floor(canvas.width / fontSize);
+            const drops = [];
+            for (let x = 0; x < columns; x++) drops[x] = 0; 
+
+            function draw() {
+                if (!matrixActive) return;
+                ctx.fillStyle = "rgba(0, 0, 0, 0.07)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#32CD32"; 
+                ctx.font = `${fontSize}px monospace`;
+                for (let i = 0; i < drops.length; i++) {
+                    const text = charArray[Math.floor(Math.random() * charArray.length)];
+                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                    drops[i]++;
+                    if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                }
+                setTimeout(() => { animationId = requestAnimationFrame(draw); }, 16); 
+            }
+            draw();
+        }
+
+        window.addEventListener('resize', () => {
+            if (matrixActive) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        });
+
+        document.addEventListener('click', () => {
+            if (!matrixActive) cmdInput.focus();
+        });
+    </script>
+</body>
+</html>
